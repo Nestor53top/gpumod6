@@ -32,8 +32,6 @@ jobs:
           if ($tmh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($tmh, 0, 0, $halfW, $sh, $true) | Out-Null
               Write-Host "TaskManager window moved"
-          } else {
-              Write-Host "TaskManager handle is zero"
           }
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
@@ -43,16 +41,15 @@ jobs:
           if ($gpuh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($gpuh, $halfW, 0, $halfW, $sh, $true) | Out-Null
               Write-Host "GPUNameSwap window moved"
-          } else {
-              Write-Host "GPUNameSwap handle is zero"
           }
 
           Start-Sleep -Seconds 2
 
+          $point = New-Object System.Drawing.Point(0, 0)
           $size = New-Object System.Drawing.Size($sw, $sh)
           $bitmap = New-Object System.Drawing.Bitmap($sw, $sh)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(0, 0, [System.Drawing.Point]::Empty, $size)
+          $graphics.CopyFromScreen($point, $point, $size)
           $bitmap.Save("$PWD\screenshot.png")
           $graphics.Dispose()
           $bitmap.Dispose()
