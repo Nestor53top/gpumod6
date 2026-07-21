@@ -15,15 +15,14 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
           Add-Type -TypeDefinition @"
           using System;
           using System.Runtime.InteropServices;
           public class WinAPI {
               [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int h2, bool r);
               [DllImport("user32.dll")] public static extern int GetSystemMetrics(int n);
-              [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
-              [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
-              [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, long dwExtraInfo);
           }
           "@
 
@@ -35,24 +34,45 @@ jobs:
           $workDir = Join-Path $PWD "GPEMODER"
 
           $tm = Start-Process "taskmgr.exe" -PassThru
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 4
 
           $tmh = $tm.MainWindowHandle
           if ($tmh -ne [IntPtr]::Zero) {
-              [WinAPI]::BringWindowToTop($tmh) | Out-Null
-              [WinAPI]::SetForegroundWindow($tmh) | Out-Null
               [WinAPI]::MoveWindow($tmh, 0, 0, $halfW, $sh, $true) | Out-Null
-              Write-Host "TaskManager focused and moved"
+              Write-Host "TaskManager moved to left half"
           }
 
-          Start-Sleep -Seconds 1
-
-          [WinAPI]::keybd_event(0x11, 0, 0, 0)
-          [WinAPI]::keybd_event(0x34, 0, 0, 0)
-          [WinAPI]::keybd_event(0x34, 0, 2, 0)
-          [WinAPI]::keybd_event(0x11, 0, 2, 0)
           Start-Sleep -Seconds 2
-          Write-Host "Sent Ctrl+4 to switch to Performance tab"
+
+          try {
+              $root = [System.Windows.Automation.AutomationElement]::FromHandle($tmh)
+              $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, "Performance")
+              $perfTab = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
+              if ($perfTab -ne $null) {
+                  $invokePattern = $perfTab.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                  $invokePattern.Invoke()
+                  Write-Host "Clicked Performance tab via UI Automation"
+              } else {
+                  Write-Host "Performance tab not found, trying ControlType=TabItem"
+                  $condition2 = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::TabItem)
+                  $tabs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition2)
+                  Write-Host "Found $($tabs.Count) tab items"
+                  foreach ($tab in $tabs) {
+                      $name = $tab.GetCurrentProperty([System.Windows.Automation.AutomationElement]::NameProperty)
+                      Write-Host "  Tab: $name"
+                      if ($name -eq "Performance") {
+                          $invokePattern = $tab.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                          $invokePattern.Invoke()
+                          Write-Host "Clicked Performance tab"
+                          break
+                      }
+                  }
+              }
+          } catch {
+              Write-Host "UI Automation failed: $_"
+          }
+
+          Start-Sleep -Seconds 2
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
           Start-Sleep -Seconds 8
