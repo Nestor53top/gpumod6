@@ -116,7 +116,7 @@ jobs:
                   $buttons = $gpuRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
                   Write-Host "Found $($buttons.Count) buttons"
                   foreach ($b in $buttons) {
-                      $name = $b.GetCurrentProperty([System.Windows.Automation.AutomationElement]::NameProperty)
+                      $name = $b.Current.Name
                       Write-Host "  Button: $name"
                       if ($name -match "\u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c") {
                           try {
