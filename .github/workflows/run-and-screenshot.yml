@@ -15,16 +15,47 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class Win32 {
+              [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+              [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+          }
+"@
 
           $workDir = "$PWD\GPEMODER"
 
-          Start-Process "taskmgr.exe"
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
+          $sw = $screen.Bounds.Width
+          $sh = $screen.Bounds.Height
+          $halfW = [int]($sw / 2)
+
+          $tm = Start-Process "taskmgr.exe" -PassThru
           Start-Sleep -Seconds 2
 
-          $proc = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
-          Start-Sleep -Seconds 8
+          try {
+              $tmWindow = $tm.WaitForInputIdle(5000)
+          } catch {}
 
-          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $tmHandle = $tm.MainWindowHandle
+          if ($tmHandle -ne [IntPtr]::Zero) {
+              [Win32]::MoveWindow($tmHandle, 0, 0, $halfW, $sh, $true)
+          }
+
+          Start-Sleep -Seconds 1
+
+          $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
+          Start-Sleep -Seconds 5
+
+          $gpuHandle = $gpu.MainWindowHandle
+          if ($gpuHandle -ne [IntPtr]::Zero) {
+              [Win32]::MoveWindow($gpuHandle, $halfW, 0, $halfW, $sh, $true)
+          }
+
+          Start-Sleep -Seconds 2
+
+          $bounds = $screen.Bounds
           $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
@@ -32,9 +63,8 @@ jobs:
           $graphics.Dispose()
           $bitmap.Dispose()
 
-          if (!$proc.HasExited) {
-            $proc.Kill()
-          }
+          if (!$gpu.HasExited) { $gpu.Kill() }
+          if (!$tm.HasExited) { $tm.Kill() }
 
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
