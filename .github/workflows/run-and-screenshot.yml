@@ -15,13 +15,15 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
-          Add-Type -TypeDefinition "using System;using System.Runtime.InteropServices;public class WinAPI{[DllImport(`"user32.dll`")]public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int h2,bool r);}"
+          Add-Type -TypeDefinition "using System;using System.Runtime.InteropServices;public class WinAPI{[DllImport(`"user32.dll`")]public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int h2,bool r);[DllImport(`"user32.dll`")]public static extern int GetSystemMetrics(int n);}"
+
+          $sw = [WinAPI]::GetSystemMetrics(0)
+          $sh = [WinAPI]::GetSystemMetrics(1)
+          $halfW = [int]($sw / 2)
+
+          Write-Host "Screen: ${sw}x${sh}"
 
           $workDir = Join-Path $PWD "GPEMODER"
-          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-          $sw = $screen.Bounds.Width
-          $sh = $screen.Bounds.Height
-          $halfW = [int]($sw / 2)
 
           $tm = Start-Process "taskmgr.exe" -PassThru
           Start-Sleep -Seconds 3
@@ -29,6 +31,9 @@ jobs:
           $tmh = $tm.MainWindowHandle
           if ($tmh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($tmh, 0, 0, $halfW, $sh, $true) | Out-Null
+              Write-Host "TaskManager window moved"
+          } else {
+              Write-Host "TaskManager handle is zero"
           }
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
@@ -37,6 +42,9 @@ jobs:
           $gpuh = $gpu.MainWindowHandle
           if ($gpuh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($gpuh, $halfW, 0, $halfW, $sh, $true) | Out-Null
+              Write-Host "GPUNameSwap window moved"
+          } else {
+              Write-Host "GPUNameSwap handle is zero"
           }
 
           Start-Sleep -Seconds 2
@@ -44,10 +52,11 @@ jobs:
           $size = New-Object System.Drawing.Size($sw, $sh)
           $bitmap = New-Object System.Drawing.Bitmap($sw, $sh)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(0, 0, 0, $size)
+          $graphics.CopyFromScreen(0, 0, [System.Drawing.Point]::Empty, $size)
           $bitmap.Save("$PWD\screenshot.png")
           $graphics.Dispose()
           $bitmap.Dispose()
+          Write-Host "Screenshot saved"
 
           if (!$gpu.HasExited) { $gpu.Kill() }
           if (!$tm.HasExited) { $tm.Kill() }
