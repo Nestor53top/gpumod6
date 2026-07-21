@@ -10,12 +10,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run GPUNameSwap and capture screenshot
+      - name: Write C# helper
         shell: pwsh
         run: |
-          Add-Type -AssemblyName System.Windows.Forms
-          Add-Type -AssemblyName System.Drawing
-          Add-Type -TypeDefinition @"
+          $code = @'
           using System;
           using System.Runtime.InteropServices;
           public class WinAPI {
@@ -24,7 +22,18 @@ jobs:
               [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
               [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, long dwExtraInfo);
           }
-"@
+          '@
+          Set-Content -Path "$PWD\winapi.cs" -Value $code
+
+      - name: Compile and run
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+          $csFile = Join-Path $PWD "winapi.cs"
+          $dllFile = Join-Path $PWD "winapi.dll"
+          Add-Type -Path $csFile -OutputAssembly $dllFile -OutputType Library
+          Add-Type -Path $dllFile
 
           $sw = [WinAPI]::GetSystemMetrics(0)
           $sh = [WinAPI]::GetSystemMetrics(1)
@@ -39,7 +48,7 @@ jobs:
           $tmh = $tm.MainWindowHandle
           if ($tmh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($tmh, 0, 0, $halfW, $sh, $true) | Out-Null
-              Write-Host "TaskManager moved to left half"
+              Write-Host "TaskManager moved"
           }
 
           Start-Sleep -Seconds 2
