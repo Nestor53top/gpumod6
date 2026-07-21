@@ -16,9 +16,13 @@ jobs:
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
 
-          $exePath = Join-Path $PWD "GPEMODER\GPUNameSwap.exe"
-          Start-Process -FilePath $exePath -WorkingDirectory "$PWD\GPEMODER"
-          Start-Sleep -Seconds 5
+          $workDir = "$PWD\GPEMODER"
+
+          Start-Process "taskmgr.exe"
+          Start-Sleep -Seconds 2
+
+          $proc = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
+          Start-Sleep -Seconds 8
 
           $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
           $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
@@ -27,6 +31,10 @@ jobs:
           $bitmap.Save("$PWD\screenshot.png")
           $graphics.Dispose()
           $bitmap.Dispose()
+
+          if (!$proc.HasExited) {
+            $proc.Kill()
+          }
 
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
