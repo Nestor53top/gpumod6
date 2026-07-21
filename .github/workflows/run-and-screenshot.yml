@@ -10,13 +10,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run GPUNameSwap as admin and screenshot
+      - name: Run GPUNameSwap and capture screenshot
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
 
-          Start-Process -FilePath ".\GPUNameSwap.exe" -Verb RunAs -Wait:$false
+          $exePath = Join-Path $PWD "GPEMODER\GPUNameSwap.exe"
+          Start-Process -FilePath $exePath -WorkingDirectory "$PWD\GPEMODER"
           Start-Sleep -Seconds 5
 
           $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
