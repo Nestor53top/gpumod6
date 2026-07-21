@@ -15,41 +15,76 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
-          $source = 'using System; using System.Runtime.InteropServices; public class Win32 { [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint); }'
-          Add-Type -TypeDefinition $source
+
+          $source = @'
+          using System;
+          using System.Drawing;
+          using System.Runtime.InteropServices;
+
+          public class ScreenCapture {
+              [DllImport("user32.dll")]
+              public static extern IntPtr GetDesktopWindow();
+
+              [DllImport("user32.dll")]
+              public static extern IntPtr GetWindowDC(IntPtr hWnd);
+
+              [DllImport("gdi32.dll")]
+              public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+              [DllImport("gdi32.dll")]
+              public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
+
+              [DllImport("gdi32.dll")]
+              public static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+
+              [DllImport("gdi32.dll")]
+              public static extern bool BitBlt(IntPtr hdcDest, int nXDest, int nYDest, int nWidth, int nHeight, IntPtr hdcSrc, int nXSrc, int nYSrc, uint dwRop);
+
+              [DllImport("gdi32.dll")]
+              public static extern bool DeleteDC(IntPtr hdc);
+
+              [DllImport("gdi32.dll")]
+              public static extern bool DeleteObject(IntPtr hObject);
+
+              [DllImport("user32.dll")]
+              public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+              [DllImport("user32.dll")]
+              public static extern int GetSystemMetrics(int nIndex);
+
+              public static void CaptureScreen(string path) {
+                  int w = GetSystemMetrics(0);
+                  int h = GetSystemMetrics(1);
+
+                  IntPtr hDesk = GetDesktopWindow();
+                  IntPtr hSrcDC = GetWindowDC(hDesk);
+                  IntPtr hMemDC = CreateCompatibleDC(hSrcDC);
+                  IntPtr hBitmap = CreateCompatibleBitmap(hSrcDC, w, h);
+                  IntPtr hOld = SelectObject(hMemDC, hBitmap);
+
+                  BitBlt(hMemDC, 0, 0, w, h, hSrcDC, 0, 0, 0x00CC0020);
+
+                  SelectObject(hMemDC, hOld);
+                  Bitmap bmp = Image.FromHbitmap(hBitmap);
+                  bmp.Save(path);
+
+                  DeleteObject(hBitmap);
+                  DeleteDC(hMemDC);
+                  ReleaseDC(hDesk, hSrcDC);
+              }
+          }
+'@
+          Add-Type -TypeDefinition $source -ReferencedAssemblies System.Drawing
 
           $workDir = "$PWD\GPEMODER"
-          $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-          $sw = $screen.Bounds.Width
-          $sh = $screen.Bounds.Height
-          $halfW = [int]($sw / 2)
 
           $tm = Start-Process "taskmgr.exe" -PassThru
           Start-Sleep -Seconds 3
 
-          $tmHandle = $tm.MainWindowHandle
-          if ($tmHandle -ne [IntPtr]::Zero) {
-              [Win32]::MoveWindow($tmHandle, 0, 0, $halfW, $sh, $true)
-          }
-
-          Start-Sleep -Seconds 1
-
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
-          Start-Sleep -Seconds 6
+          Start-Sleep -Seconds 8
 
-          $gpuHandle = $gpu.MainWindowHandle
-          if ($gpuHandle -ne [IntPtr]::Zero) {
-              [Win32]::MoveWindow($gpuHandle, $halfW, 0, $halfW, $sh, $true)
-          }
-
-          Start-Sleep -Seconds 2
-
-          $bitmap = New-Object System.Drawing.Bitmap($sw, $sh)
-          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(0, 0, 0, $sw, $sh)
-          $bitmap.Save("$PWD\screenshot.png")
-          $graphics.Dispose()
-          $bitmap.Dispose()
+          [ScreenCapture]::CaptureScreen("$PWD\screenshot.png")
 
           if (!$gpu.HasExited) { $gpu.Kill() }
           if (!$tm.HasExited) { $tm.Kill() }
