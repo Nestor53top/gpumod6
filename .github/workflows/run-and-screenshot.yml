@@ -19,8 +19,9 @@ jobs:
           public class WinAPI {
               [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int h2, bool r);
               [DllImport("user32.dll")] public static extern int GetSystemMetrics(int n);
-              [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, long wParam, long lParam);
-              [DllImport("user32.dll")] public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+              [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+              [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+              [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, long dwExtraInfo);
           }
           "@
           Set-Content -Path "$PWD\winapi.cs" -Value $code
@@ -51,17 +52,18 @@ jobs:
               Write-Host "TaskManager moved to left half"
           }
 
+          Start-Sleep -Seconds 1
+
+          [WinAPI]::BringWindowToTop($tmh) | Out-Null
+          [WinAPI]::SetForegroundWindow($tmh) | Out-Null
+          Start-Sleep -Milliseconds 500
+
+          Write-Host "Sending Ctrl+Tab to switch to Performance tab"
+          [WinAPI]::keybd_event(0x11, 0, 0, 0)
+          [WinAPI]::keybd_event(0x09, 0, 0, 0)
+          [WinAPI]::keybd_event(0x09, 0, 2, 0)
+          [WinAPI]::keybd_event(0x11, 0, 2, 0)
           Start-Sleep -Seconds 2
-
-          $tabX = 25
-          $tabY = 145
-          $lParam = ($tabY -shl 16) -bor $tabX
-
-          Write-Host "Sending click to Performance tab at ($tabX, $tabY)"
-          [WinAPI]::SendMessage($tmh, 0x0201, 0, $lParam) | Out-Null
-          Start-Sleep -Milliseconds 100
-          [WinAPI]::SendMessage($tmh, 0x0202, 0, $lParam) | Out-Null
-          Start-Sleep -Seconds 3
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
           Start-Sleep -Seconds 8
