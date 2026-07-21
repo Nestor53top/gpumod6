@@ -32,6 +32,10 @@ jobs:
           if ($tmh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($tmh, 0, 0, $halfW, $sh, $true) | Out-Null
               Write-Host "TaskManager window moved"
+
+              [System.Windows.Forms.SendKeys]::SendWait("^5")
+              Start-Sleep -Seconds 1
+              Write-Host "Switched to Performance tab"
           }
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
