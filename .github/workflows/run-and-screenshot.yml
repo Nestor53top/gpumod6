@@ -1,0 +1,34 @@
+name: Run GPUNameSwap and Screenshot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run GPUNameSwap as admin and screenshot
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -AssemblyName System.Drawing
+
+          Start-Process -FilePath ".\GPUNameSwap.exe" -Verb RunAs -Wait:$false
+          Start-Sleep -Seconds 5
+
+          $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bitmap = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+          $bitmap.Save("$PWD\screenshot.png")
+          $graphics.Dispose()
+          $bitmap.Dispose()
+
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot
+          path: screenshot.png

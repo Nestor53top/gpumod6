@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file>gpu_hook.dll</file>
+    </qresource>
+</RCC>
