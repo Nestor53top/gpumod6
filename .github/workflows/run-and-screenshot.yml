@@ -15,7 +15,6 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
-
           Add-Type -TypeDefinition "using System;using System.Runtime.InteropServices;public class WinAPI{[DllImport(`"user32.dll`")]public static extern bool MoveWindow(IntPtr h,int x,int y,int w,int h2,bool r);}"
 
           $workDir = Join-Path $PWD "GPEMODER"
@@ -42,9 +41,10 @@ jobs:
 
           Start-Sleep -Seconds 2
 
+          $size = New-Object System.Drawing.Size($sw, $sh)
           $bitmap = New-Object System.Drawing.Bitmap($sw, $sh)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-          $graphics.CopyFromScreen(0, 0, 0, $sw, $sh)
+          $graphics.CopyFromScreen(0, 0, 0, $size)
           $bitmap.Save("$PWD\screenshot.png")
           $graphics.Dispose()
           $bitmap.Dispose()
