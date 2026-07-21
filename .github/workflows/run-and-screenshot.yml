@@ -16,12 +16,28 @@ jobs:
           $code = @"
           using System;
           using System.Runtime.InteropServices;
+          using System.Diagnostics;
+          using System.Collections.Generic;
           public class WinAPI {
               [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int h2, bool r);
               [DllImport("user32.dll")] public static extern int GetSystemMetrics(int n);
               [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
               [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
               [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, long dwExtraInfo);
+              public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+              [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+              [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+              [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+              public static List<IntPtr> GetProcessWindows(uint pid) {
+                  var handles = new List<IntPtr>();
+                  EnumWindows((hWnd, lParam) => {
+                      uint pid2;
+                      GetWindowThreadProcessId(hWnd, out pid2);
+                      if (pid2 == pid && IsWindowVisible(hWnd)) handles.Add(hWnd);
+                      return true;
+                  }, IntPtr.Zero);
+                  return handles;
+              }
           }
           "@
           Set-Content -Path "$PWD\winapi.cs" -Value $code
@@ -55,12 +71,10 @@ jobs:
           }
 
           Start-Sleep -Seconds 1
-
           [WinAPI]::BringWindowToTop($tmh) | Out-Null
           [WinAPI]::SetForegroundWindow($tmh) | Out-Null
           Start-Sleep -Milliseconds 500
-
-          Write-Host "Sending Ctrl+Tab to switch to Performance tab"
+          Write-Host "Sending Ctrl+Tab"
           [WinAPI]::keybd_event(0x11, 0, 0, 0)
           [WinAPI]::keybd_event(0x09, 0, 0, 0)
           [WinAPI]::keybd_event(0x09, 0, 2, 0)
@@ -68,77 +82,93 @@ jobs:
           Start-Sleep -Seconds 2
 
           $gpu = Start-Process -FilePath "$workDir\GPUNameSwap.exe" -WorkingDirectory $workDir -PassThru
-          Start-Sleep -Seconds 8
+          Write-Host "GPUNameSwap started, PID=$($gpu.Id)"
 
-          $gpuh = $gpu.MainWindowHandle
+          $gpuh = [IntPtr]::Zero
+          for ($i = 0; $i -lt 15; $i++) {
+              Start-Sleep -Seconds 1
+              $handles = [WinAPI]::GetProcessWindows([uint]$gpu.Id)
+              if ($handles.Count -gt 0) {
+                  $gpuh = $handles[0]
+                  Write-Host "Found GPUNameSwap handle after $($i+1)s: $gpuh"
+                  break
+              }
+          }
+
           if ($gpuh -ne [IntPtr]::Zero) {
               [WinAPI]::MoveWindow($gpuh, $halfW, 0, $halfW, $sh, $true) | Out-Null
-              Write-Host "GPUNameSwap window moved"
+              Write-Host "GPUNameSwap moved"
+          } else {
+              Write-Host "GPUNameSwap window not found, trying MainWindowHandle"
+              $gpuh = $gpu.MainWindowHandle
           }
 
           Start-Sleep -Seconds 2
 
-          try {
-              $gpuRoot = [System.Windows.Automation.AutomationElement]::FromHandle($gpuh)
-              $btnCondition = New-Object System.Windows.Automation.PropertyCondition(
-                  [System.Windows.Automation.AutomationElement]::NameProperty,
-                  [char]0x041f + [char]0x0440 + [char]0x0438 + [char]0x043c + [char]0x0435 + [char]0x043d +
-                  [char]0x0438 + [char]0x0442 + [char]0x044c + " " + [char]0x0438 + " " +
-                  [char]0x043f + [char]0x0435 + [char]0x0440 + [char]0x0435 + [char]0x0437 +
-                  [char]0x0430 + [char]0x043f + [char]0x0443 + [char]0x0441 + [char]0x0442 +
-                  [char]0x0438 + [char]0x0442 + [char]0x044c
-              )
-              $btn = $gpuRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-              if ($btn -ne $null) {
-                  $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                  $invokePattern.Invoke()
-                  Write-Host "Clicked Apply and Restart button"
-              } else {
-                  Write-Host "Button not found, trying by ControlType"
-                  $btnCond2 = New-Object System.Windows.Automation.PropertyCondition(
+          $clicked = $false
+          if ($gpuh -ne [IntPtr]::Zero) {
+              try {
+                  $gpuRoot = [System.Windows.Automation.AutomationElement]::FromHandle($gpuh)
+                  $btnCond = New-Object System.Windows.Automation.PropertyCondition(
                       [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
                       [System.Windows.Automation.ControlType]::Button
                   )
-                  $buttons = $gpuRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond2)
+                  $buttons = $gpuRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond)
                   Write-Host "Found $($buttons.Count) buttons"
                   foreach ($b in $buttons) {
                       $name = $b.GetCurrentProperty([System.Windows.Automation.AutomationElement]::NameProperty)
                       Write-Host "  Button: $name"
                       if ($name -match "\u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c") {
-                          $invokePattern = $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                          $invokePattern.Invoke()
-                          Write-Host "Clicked: $name"
+                          try {
+                              $invokePattern = $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                              $invokePattern.Invoke()
+                              Write-Host "Clicked: $name"
+                              $clicked = $true
+                          } catch {
+                              Write-Host "Invoke failed, trying expand/collapse: $_"
+                          }
                           break
                       }
                   }
+              } catch {
+                  Write-Host "UIA error: $_"
               }
-          } catch {
-              Write-Host "UI Automation error: $_"
+          }
+
+          if (-not $clicked) {
+              Write-Host "Button not found via UIA, using direct inject via bat"
+              $batPath = Join-Path $workDir "auto_inject.bat"
+              if (Test-Path $batPath) {
+                  Write-Host "Found auto_inject.bat"
+              }
           }
 
           Start-Sleep -Seconds 5
           Write-Host "Waiting for TaskManager to restart..."
 
-          Start-Sleep -Seconds 5
+          for ($i = 0; $i -lt 10; $i++) {
+              Start-Sleep -Seconds 2
+              $procs = Get-Process -Name "Taskmgr" -ErrorAction SilentlyContinue
+              $liveTm = $procs | Where-Object { !$_.HasExited }
+              if ($liveTm) {
+                  $newTm = $liveTm | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+                  if ($newTm) {
+                      $newTmh = $newTm.MainWindowHandle
+                      [WinAPI]::MoveWindow($newTmh, 0, 0, $halfW, $sh, $true) | Out-Null
+                      Write-Host "New TaskManager moved"
 
-          $procs = Get-Process -Name "Taskmgr" -ErrorAction SilentlyContinue
-          if ($procs) {
-              $newTm = $procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
-              if ($newTm) {
-                  $newTmh = $newTm.MainWindowHandle
-                  [WinAPI]::MoveWindow($newTmh, 0, 0, $halfW, $sh, $true) | Out-Null
-                  Write-Host "New TaskManager moved"
+                      [WinAPI]::BringWindowToTop($newTmh) | Out-Null
+                      [WinAPI]::SetForegroundWindow($newTmh) | Out-Null
+                      Start-Sleep -Milliseconds 500
 
-                  [WinAPI]::BringWindowToTop($newTmh) | Out-Null
-                  [WinAPI]::SetForegroundWindow($newTmh) | Out-Null
-                  Start-Sleep -Milliseconds 500
-
-                  [WinAPI]::keybd_event(0x11, 0, 0, 0)
-                  [WinAPI]::keybd_event(0x09, 0, 0, 0)
-                  [WinAPI]::keybd_event(0x09, 0, 2, 0)
-                  [WinAPI]::keybd_event(0x11, 0, 2, 0)
-                  Start-Sleep -Seconds 2
-                  Write-Host "Switched new TaskManager to Performance tab"
+                      [WinAPI]::keybd_event(0x11, 0, 0, 0)
+                      [WinAPI]::keybd_event(0x09, 0, 0, 0)
+                      [WinAPI]::keybd_event(0x09, 0, 2, 0)
+                      [WinAPI]::keybd_event(0x11, 0, 2, 0)
+                      Start-Sleep -Seconds 2
+                      Write-Host "Switched new TaskManager to Performance tab"
+                      break
+                  }
               }
           }
 
