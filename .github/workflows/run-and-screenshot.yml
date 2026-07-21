@@ -31,6 +31,8 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName UIAutomationClient
+          Add-Type -AssemblyName UIAutomationTypes
           $csFile = Join-Path $PWD "winapi.cs"
           $dllFile = Join-Path $PWD "winapi.dll"
           Add-Type -Path $csFile -OutputAssembly $dllFile -OutputType Library
@@ -76,6 +78,72 @@ jobs:
 
           Start-Sleep -Seconds 2
 
+          try {
+              $gpuRoot = [System.Windows.Automation.AutomationElement]::FromHandle($gpuh)
+              $btnCondition = New-Object System.Windows.Automation.PropertyCondition(
+                  [System.Windows.Automation.AutomationElement]::NameProperty,
+                  [char]0x041f + [char]0x0440 + [char]0x0438 + [char]0x043c + [char]0x0435 + [char]0x043d +
+                  [char]0x0438 + [char]0x0442 + [char]0x044c + " " + [char]0x0438 + " " +
+                  [char]0x043f + [char]0x0435 + [char]0x0440 + [char]0x0435 + [char]0x0437 +
+                  [char]0x0430 + [char]0x043f + [char]0x0443 + [char]0x0441 + [char]0x0442 +
+                  [char]0x0438 + [char]0x0442 + [char]0x044c
+              )
+              $btn = $gpuRoot.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
+              if ($btn -ne $null) {
+                  $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                  $invokePattern.Invoke()
+                  Write-Host "Clicked Apply and Restart button"
+              } else {
+                  Write-Host "Button not found, trying by ControlType"
+                  $btnCond2 = New-Object System.Windows.Automation.PropertyCondition(
+                      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                      [System.Windows.Automation.ControlType]::Button
+                  )
+                  $buttons = $gpuRoot.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond2)
+                  Write-Host "Found $($buttons.Count) buttons"
+                  foreach ($b in $buttons) {
+                      $name = $b.GetCurrentProperty([System.Windows.Automation.AutomationElement]::NameProperty)
+                      Write-Host "  Button: $name"
+                      if ($name -match "\u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u044c") {
+                          $invokePattern = $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                          $invokePattern.Invoke()
+                          Write-Host "Clicked: $name"
+                          break
+                      }
+                  }
+              }
+          } catch {
+              Write-Host "UI Automation error: $_"
+          }
+
+          Start-Sleep -Seconds 5
+          Write-Host "Waiting for TaskManager to restart..."
+
+          Start-Sleep -Seconds 5
+
+          $procs = Get-Process -Name "Taskmgr" -ErrorAction SilentlyContinue
+          if ($procs) {
+              $newTm = $procs | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } | Select-Object -First 1
+              if ($newTm) {
+                  $newTmh = $newTm.MainWindowHandle
+                  [WinAPI]::MoveWindow($newTmh, 0, 0, $halfW, $sh, $true) | Out-Null
+                  Write-Host "New TaskManager moved"
+
+                  [WinAPI]::BringWindowToTop($newTmh) | Out-Null
+                  [WinAPI]::SetForegroundWindow($newTmh) | Out-Null
+                  Start-Sleep -Milliseconds 500
+
+                  [WinAPI]::keybd_event(0x11, 0, 0, 0)
+                  [WinAPI]::keybd_event(0x09, 0, 0, 0)
+                  [WinAPI]::keybd_event(0x09, 0, 2, 0)
+                  [WinAPI]::keybd_event(0x11, 0, 2, 0)
+                  Start-Sleep -Seconds 2
+                  Write-Host "Switched new TaskManager to Performance tab"
+              }
+          }
+
+          Start-Sleep -Seconds 2
+
           $point = New-Object System.Drawing.Point(0, 0)
           $size = New-Object System.Drawing.Size($sw, $sh)
           $bitmap = New-Object System.Drawing.Bitmap($sw, $sh)
@@ -86,8 +154,7 @@ jobs:
           $bitmap.Dispose()
           Write-Host "Screenshot saved"
 
-          if (!$gpu.HasExited) { $gpu.Kill() }
-          if (!$tm.HasExited) { $tm.Kill() }
+          Get-Process -Name "GPUNameSwap","Taskmgr" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
       - name: Upload screenshot
         uses: actions/upload-artifact@v4
